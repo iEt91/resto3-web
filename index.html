@@ -105,6 +105,11 @@
     <label for="codigoBuscar">Tu código</label>
     <div style="display:flex; gap:8px"><input id="codigoBuscar" placeholder="W-XXXXXX" maxlength="12" autocapitalize="characters"><button class="sec" id="buscar">Ver</button></div>
     <div id="estadoReserva" role="status" aria-live="polite" style="margin-top:12px"></div>
+    <div id="cancelar" hidden style="margin-top:12px">
+      <label for="ultimos">Para cancelar tu reserva, escribí los últimos 4 números de tu teléfono</label>
+      <div style="display:flex; gap:8px"><input id="ultimos" inputmode="numeric" maxlength="4" placeholder="1234"><button class="sec" id="botonCancelar">Cancelar mi reserva</button></div>
+      <p class="error" id="errorCancelar" role="alert" hidden></p>
+    </div>
   </section>
 
   <section class="tarjeta" id="horariosTarjeta" hidden><h2>Horarios</h2><table id="horarios"></table></section>
@@ -318,8 +323,21 @@ async function consultar() {
   else { const f = new Date(d.fecha + "T12:00:00"); a.textContent = `${d.nombre} · ${d.personas} personas · ${DIAS[f.getDay()]} ${f.getDate()}/${f.getMonth() + 1} a las ${d.hora}`; }
   const t = document.createElement("div"); t.textContent = texto + (d.motivo ? ` Motivo: ${d.motivo}` : "");
   cont.append(h, a, t);
+  $("cancelar").hidden = pedido || !(["nueva", "recibida", "confirmada"].includes(d.estado));
   if (!["rechazada", "cancelada", "entregada", "completada", "no_vino"].includes(d.estado)) temporizador = setTimeout(consultar, 30000);
 }
+$("botonCancelar").onclick = async () => {
+  const e = (t) => { $("errorCancelar").textContent = t; $("errorCancelar").hidden = !t; };
+  if (!/^\d{4}$/.test($("ultimos").value.trim())) return e("Escribí los 4 últimos números de tu teléfono.");
+  if (!confirm("¿Seguro que querés cancelar tu reserva?")) return;
+  e(""); $("botonCancelar").disabled = true;
+  const r = await nube("web-cancelar", { codigo: $("codigoBuscar").value.trim().toUpperCase(), telefono: $("ultimos").value.trim() });
+  $("botonCancelar").disabled = false;
+  if (!r.ok) return e(r.datos.error || "No pudimos cancelar. Probá de nuevo o llamá al local.");
+  $("ultimos").value = ""; $("cancelar").hidden = true;
+  $("estadoReserva").textContent = r.datos.inmediata ? "Tu reserva fue cancelada." : "Pedimos la cancelación: el local la procesa en un momento.";
+  setTimeout(consultar, 5000);
+};
 $("buscar").onclick = () => { guardarCodigo($("codigoBuscar").value.trim().toUpperCase()); consultar(); };
 $("codigoBuscar").onkeydown = (e) => { if (e.key === "Enter") $("buscar").click(); };
 
