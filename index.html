@@ -46,6 +46,8 @@
 <body>
 <main>
   <h1 id="nombre">…</h1>
+  <p class="suave" id="bienvenida" hidden style="margin:0 0 4px"></p>
+  <p class="suave" id="datosLocal" hidden style="margin:0 0 4px"></p>
   <p class="estado" role="status" aria-live="polite"><i class="punto" id="punto"></i><span id="estado">Cargando…</span></p>
 
   <section class="tarjeta" id="portada" hidden>
@@ -122,6 +124,15 @@
   </div>
 </div>
 
+<div class="fondo" id="elegir" hidden role="dialog" aria-modal="true" aria-labelledby="elegirTitulo">
+  <div class="modal" style="max-height:90vh;overflow:auto"><h2 id="elegirTitulo"></h2>
+    <div id="elegirCuerpo"></div>
+    <div class="total"><span>Precio</span><span id="elegirTotal"></span></div>
+    <p class="error" id="elegirError" role="alert" hidden></p>
+    <div class="fila"><button class="principal" id="elegirAgregar" style="flex:1">Agregar</button><button class="sec" id="elegirCancelar">Cancelar</button></div>
+  </div>
+</div>
+
 <script>
 // Dirección de la nube de Resto 3. Si algún día cambia, se cambia sólo acá.
 const NUBE = "https://huqifpwqqncdnxulmcee.supabase.co/functions/v1/resto3";
@@ -130,7 +141,7 @@ const $ = (id) => document.getElementById(id);
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MENSAJE_SIN_LOCAL = "Por el momento únicamente reservas y pedidos por teléfono.";
 const pesos = (c) => "$" + (c / 100).toLocaleString("es-AR", { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 });
-let info = null, personas = 2, horaElegida = "", cantidades = {};
+let info = null, personas = 2, horaElegida = "", lineas = [];
 
 async function nube(ruta, cuerpo) {
   try {
@@ -150,6 +161,27 @@ function mostrarAviso(texto) {
 $("avisoCerrar").onclick = () => { $("aviso").hidden = true; };
 const cerrarFormularios = () => { $("formulario").hidden = true; $("pedido").hidden = true; };
 
+// Plantillas que elige el local (Configuración → Web del local). "clasica" es la de la hoja de estilos; las otras cambian los colores y la letra del título.
+const PLANTILLAS = {
+  moderna: { vars: { "--fondo": "#f2f6fb", "--tarjeta": "#ffffff", "--texto": "#10202e", "--suave": "#5b6b7a", "--linea": "#d9e2ec", "--acento": "#2563eb" }, titulo: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" },
+  oscura: { vars: { "--fondo": "#141210", "--tarjeta": "#1d1a17", "--texto": "#f3ece4", "--suave": "#a89e93", "--linea": "#332f2a", "--acento": "#ff6a2a", "--ok": "#58c58a", "--mal": "#ff8a80", "--aviso": "#f0b954" }, titulo: "" },
+  calida: { vars: { "--fondo": "#f6efe3", "--tarjeta": "#fffaf1", "--texto": "#3b2a1a", "--suave": "#7a6652", "--linea": "#e4d5bd", "--acento": "#9c4a1a" }, titulo: "Georgia, 'Times New Roman', serif" },
+};
+const textoSobre = (hex) => { const n = parseInt(hex.slice(1), 16), l = (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255; return l > 0.6 ? "#1a1a1a" : "#ffffff"; };
+function aplicarApariencia(a) {
+  const raiz = document.documentElement.style, pl = PLANTILLAS[a.plantilla];
+  for (const k of ["--fondo", "--tarjeta", "--texto", "--suave", "--linea", "--acento", "--acento-t", "--ok", "--mal", "--aviso"]) raiz.removeProperty(k);
+  if (pl) for (const [k, v] of Object.entries(pl.vars)) raiz.setProperty(k, v);
+  const acento = /^#[0-9a-fA-F]{6}$/.test(a.acento || "") ? a.acento : (pl && pl.vars["--acento"]) || "";
+  if (acento) { raiz.setProperty("--acento", acento); raiz.setProperty("--acento-t", textoSobre(acento)); }
+  else if (pl && pl.vars["--fondo"] === "#141210") raiz.setProperty("--acento-t", "#1a0f08");
+  $("nombre").style.fontFamily = (pl && pl.titulo) || "";
+  $("bienvenida").hidden = !a.bienvenida; $("bienvenida").textContent = a.bienvenida || "";
+  const datos = $("datosLocal"); datos.textContent = ""; datos.hidden = !(a.direccionLocal || a.instagram);
+  if (a.direccionLocal) datos.append(a.direccionLocal);
+  if (/^[A-Za-z0-9._]{1,60}$/.test(a.instagram || "")) { const l = document.createElement("a"); l.href = "https://instagram.com/" + a.instagram; l.target = "_blank"; l.rel = "noopener noreferrer"; l.textContent = "@" + a.instagram; if (a.direccionLocal) datos.append(" · "); datos.append(l); }
+}
+
 async function cargar() {
   const r = await nube("web-info", {});
   if (!r.ok) { $("nombre").textContent = "Reservas"; $("estado").textContent = r.status === 404 ? "No encontramos este restaurante." : "No pudimos cargar la página. Probá en unos minutos."; $("punto").className = "punto off"; $("portada").hidden = true; return; }
@@ -157,6 +189,7 @@ async function cargar() {
   const p = info.publica || {}, abierto = !!info.abierta;
   document.title = (p.nombre || "Reservas") + " · Reservas y pedidos";
   $("nombre").textContent = p.nombre || "Reservas";
+  aplicarApariencia(p.apariencia || {});
   $("punto").className = "punto " + (abierto ? "on" : "off");
   $("estado").textContent = abierto ? (pedidosOn() ? "Tomando reservas y pedidos por Internet" : "Tomando reservas por Internet") : MENSAJE_SIN_LOCAL;
   $("portada").hidden = false;
@@ -233,38 +266,121 @@ $("enviar").onclick = async () => {
 $("verEstado").onclick = () => { $("seguimiento").scrollIntoView({ behavior: "smooth" }); consultar(); };
 
 // ---- pedir online
+// El pedido es una lista de líneas: { p: producto, cant, opciones: [ids], elecciones: [{pasoId, productoId, opciones}], texto, unit }.
+// Los productos sin opciones se suman con + y − en su fila; los que tienen variantes, extras o son combos se agregan con "Elegir" (abre una ventana).
 const entrega = () => document.querySelector('input[name="entrega"]:checked').value;
 const envioCents = () => (info.publica.pedidos && info.publica.pedidos.envioCents) || 0;
-const itemsElegidos = () => Object.entries(cantidades).filter(([, n]) => n > 0).map(([id, cantidad]) => ({ id, cantidad }));
+const llevaElegir = (p) => !!p.combo || (p.grupos || []).length > 0;
+const itemsElegidos = () => lineas.filter((l) => l.cant > 0).map((l) => ({ id: l.p.id, cantidad: l.cant, opciones: l.opciones, elecciones: l.elecciones }));
 function totalPedido() {
-  const precios = {}; for (const c of info.carta || []) for (const p of c.productos) precios[p.id] = p.precioCents;
-  const subtotal = itemsElegidos().reduce((t, i) => t + (precios[i.id] || 0) * i.cantidad, 0);
+  const subtotal = lineas.reduce((t, l) => t + l.unit * l.cant, 0);
   return subtotal + (subtotal > 0 && entrega() === "delivery" ? envioCents() : 0);
 }
+const enLinea = (p) => lineas.filter((l) => l.p.id === p.id).reduce((s, l) => s + l.cant, 0);
+const sumaDeltas = (grupos, ids) => (grupos || []).flatMap((g) => g.opciones).filter((o) => ids.has(o.id)).reduce((s, o) => s + o.deltaCents, 0);
+const nombresDe = (grupos, ids) => (grupos || []).flatMap((g) => g.opciones).filter((o) => ids.has(o.id)).map((o) => o.nombre);
+
+// Dibuja los grupos de opciones de un producto dentro de `cont`; `ids` es el Set de opciones elegidas.
+function pintarGrupos(cont, grupos, ids, cambio) {
+  for (const g of grupos || []) {
+    const caja = document.createElement("div"); caja.style.margin = "10px 0";
+    const t = document.createElement("b"); t.textContent = g.nombre + (g.obligatorio ? " (obligatorio)" : g.tipo === "varias" && g.maxElegibles ? ` (hasta ${g.maxElegibles})` : " (opcional)"); caja.append(t);
+    for (const o of g.opciones) {
+      const et = document.createElement("label"); et.style.cssText = "display:flex;gap:8px;align-items:center;margin:4px 0;color:inherit";
+      const inp = document.createElement("input"); inp.type = g.tipo === "una" ? "radio" : "checkbox"; inp.name = "g" + g.id; inp.style.width = "auto"; inp.checked = ids.has(o.id);
+      inp.onchange = () => {
+        if (g.tipo === "una") g.opciones.forEach((x) => ids.delete(x.id));
+        if (inp.checked) ids.add(o.id); else ids.delete(o.id);
+        if (g.tipo === "varias" && g.maxElegibles && g.opciones.filter((x) => ids.has(x.id)).length > g.maxElegibles) { ids.delete(o.id); inp.checked = false; }
+        cambio();
+      };
+      et.append(inp, document.createTextNode(o.nombre + (o.deltaCents ? " (+" + pesos(o.deltaCents) + ")" : ""))); caja.append(et);
+    }
+    cont.append(caja);
+  }
+}
+const faltaElegir = (grupos, ids) => { const g = (grupos || []).find((x) => x.obligatorio && !x.opciones.some((o) => ids.has(o.id))); return g ? `Elegí una opción de "${g.nombre}".` : ""; };
+
+// Ventana para elegir las opciones de un producto o las partes de un combo.
+function elegir(p) {
+  const ids = new Set(), partes = {}; // partes: pasoId -> { x: producto elegido, ids: Set }
+  const cont = $("elegirCuerpo"); const err = $("elegirError");
+  $("elegirTitulo").textContent = p.nombre;
+  const unitario = () => p.precioCents + (p.combo ? p.combo.pasos.reduce((s, paso) => { const e = partes[paso.id]; return s + (e ? e.x.extraCents + sumaDeltas(e.x.grupos, e.ids) : 0); }, 0) : sumaDeltas(p.grupos, ids));
+  const pintar = () => {
+    cont.innerHTML = "";
+    if (p.combo) {
+      for (const paso of p.combo.pasos) {
+        const e = partes[paso.id], h = document.createElement("h3"); h.textContent = paso.nombre + (paso.cantidad > 1 ? ` (${paso.cantidad})` : ""); cont.append(h);
+        for (const x of paso.productos) {
+          const et = document.createElement("label"); et.style.cssText = "display:flex;gap:8px;align-items:center;margin:4px 0;color:inherit";
+          const inp = document.createElement("input"); inp.type = "radio"; inp.name = "paso" + paso.id; inp.style.width = "auto"; inp.checked = !!e && e.x.id === x.id;
+          inp.onchange = () => { partes[paso.id] = { x, ids: new Set() }; pintar(); };
+          et.append(inp, document.createTextNode(x.nombre + (x.extraCents ? " (+" + pesos(x.extraCents) + ")" : ""))); cont.append(et);
+        }
+        if (e) pintarGrupos(cont, e.x.grupos, e.ids, pintar);
+      }
+    } else pintarGrupos(cont, p.grupos, ids, pintar);
+    $("elegirTotal").textContent = pesos(unitario());
+  };
+  pintar(); err.hidden = true; $("elegir").hidden = false;
+  $("elegirCancelar").onclick = () => { $("elegir").hidden = true; };
+  $("elegirAgregar").onclick = () => {
+    let falta = "", elecciones = [];
+    if (p.combo) {
+      for (const paso of p.combo.pasos) { const e = partes[paso.id]; if (!e) { falta = `Elegí ${paso.nombre.toLowerCase()}.`; break; } falta = faltaElegir(e.x.grupos, e.ids); if (falta) break; elecciones.push({ pasoId: paso.id, productoId: e.x.id, opciones: [...e.ids] }); }
+    } else falta = faltaElegir(p.grupos, ids);
+    if (falta) { err.textContent = falta; err.hidden = false; return; }
+    const texto = p.combo ? elecciones.map((e) => { const paso = p.combo.pasos.find((s) => s.id === e.pasoId), x = paso.productos.find((y) => y.id === e.productoId); const extras = nombresDe(x.grupos, new Set(e.opciones)); return x.nombre + (extras.length ? " (" + extras.join(", ") + ")" : ""); }).join(" + ") : nombresDe(p.grupos, ids).join(", ");
+    lineas.push({ p, cant: 1, opciones: p.combo ? [] : [...ids], elecciones, texto, unit: unitario() });
+    $("elegir").hidden = true; pintarPedido();
+  };
+}
+
 function pintarPedido() {
-  const disponibles = new Set((info.carta || []).flatMap((c) => c.productos.map((p) => p.id)));
-  const tope = {}; for (const c of info.carta || []) for (const p of c.productos) tope[p.id] = p.max || 99;
-  for (const id of Object.keys(cantidades)) { if (!disponibles.has(id)) delete cantidades[id]; else cantidades[id] = Math.min(cantidades[id], tope[id]); } // algo se agotó (o quedó menos) mientras elegía
+  const carta = new Map((info.carta || []).flatMap((c) => c.productos.map((p) => [p.id, p])));
+  lineas = lineas.filter((l) => carta.has(l.p.id)); // algo se sacó de la carta mientras elegía
+  for (const l of lineas) { const p = carta.get(l.p.id); l.p = p; if (!llevaElegir(p)) l.unit = p.precioCents; l.cant = Math.min(l.cant, p.max || 99); } // algo se agotó (o quedó menos) mientras elegía
   const cont = $("carta"); cont.innerHTML = "";
   for (const c of info.carta || []) {
     const h = document.createElement("h3"); h.textContent = c.nombre; cont.append(h);
     for (const p of c.productos) {
       const fila = document.createElement("div"); fila.className = "producto";
       const infoP = document.createElement("div"); infoP.className = "info";
-      const n = document.createElement("div"); n.textContent = (p.destacado ? "★ " : "") + p.nombre;
-      const pr = document.createElement("small"); pr.textContent = pesos(p.precioCents) + (p.descripcion ? " · " + p.descripcion : "");
+      const n = document.createElement("div"); n.textContent = (p.destacado ? "★ " : "") + p.nombre + (p.combo ? " (combo)" : "");
+      const pr = document.createElement("small"); pr.textContent = (llevaElegir(p) ? "desde " : "") + pesos(p.precioCents) + (p.descripcion ? " · " + p.descripcion : "");
       infoP.append(n, pr);
       const cant = document.createElement("div"); cant.className = "cant";
-      const menos = document.createElement("button"); menos.type = "button"; menos.className = "sec"; menos.textContent = "−"; menos.setAttribute("aria-label", "Quitar uno de " + p.nombre);
-      const num = document.createElement("b"); num.textContent = cantidades[p.id] || 0;
-      const mas = document.createElement("button"); mas.type = "button"; mas.className = "sec"; mas.textContent = "+"; mas.setAttribute("aria-label", "Agregar uno de " + p.nombre);
-      menos.onclick = () => { cantidades[p.id] = Math.max(0, (cantidades[p.id] || 0) - 1); pintarPedido(); };
-      mas.onclick = () => { cantidades[p.id] = Math.min(p.max || 99, (cantidades[p.id] || 0) + 1); pintarPedido(); };
-      mas.disabled = (cantidades[p.id] || 0) >= (p.max || 99); // no se puede pedir más de lo que alcanza
-      cant.append(menos, num, mas); fila.append(infoP, cant); cont.append(fila);
+      if (llevaElegir(p)) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "sec"; b.textContent = "Elegir"; b.setAttribute("aria-label", "Elegir " + p.nombre);
+        b.disabled = enLinea(p) >= (p.max || 99); b.onclick = () => elegir(p); cant.append(b);
+      } else {
+        const linea = lineas.find((l) => l.p.id === p.id);
+        const menos = document.createElement("button"); menos.type = "button"; menos.className = "sec"; menos.textContent = "−"; menos.setAttribute("aria-label", "Quitar uno de " + p.nombre);
+        const num = document.createElement("b"); num.textContent = linea ? linea.cant : 0;
+        const mas = document.createElement("button"); mas.type = "button"; mas.className = "sec"; mas.textContent = "+"; mas.setAttribute("aria-label", "Agregar uno de " + p.nombre);
+        menos.onclick = () => { if (linea) { linea.cant--; lineas = lineas.filter((l) => l.cant > 0); } pintarPedido(); };
+        mas.onclick = () => { if (linea) linea.cant++; else lineas.push({ p, cant: 1, opciones: [], elecciones: [], texto: "", unit: p.precioCents }); pintarPedido(); };
+        mas.disabled = (linea ? linea.cant : 0) >= (p.max || 99); // no se puede pedir más de lo que alcanza
+        cant.append(menos, num, mas);
+      }
+      fila.append(infoP, cant); cont.append(fila);
     }
   }
   if (!(info.carta || []).length) cont.textContent = "Por ahora no hay productos para pedir online.";
+  const elegidas = lineas.filter((l) => llevaElegir(l.p)); // lo que se agregó con "Elegir", para poder sacarlo
+  if (elegidas.length) {
+    const h = document.createElement("h3"); h.textContent = "Lo que elegiste"; cont.append(h);
+    for (const l of elegidas) {
+      const fila = document.createElement("div"); fila.className = "producto";
+      const infoP = document.createElement("div"); infoP.className = "info";
+      const n = document.createElement("div"); n.textContent = `${l.cant} × ${l.p.nombre}`;
+      const pr = document.createElement("small"); pr.textContent = pesos(l.unit * l.cant) + (l.texto ? " · " + l.texto : ""); infoP.append(n, pr);
+      const q = document.createElement("button"); q.type = "button"; q.className = "sec"; q.textContent = "Quitar"; q.setAttribute("aria-label", "Quitar " + l.p.nombre);
+      q.onclick = () => { lineas = lineas.filter((x) => x !== l); pintarPedido(); };
+      fila.append(infoP, q); cont.append(fila);
+    }
+  }
   $("costoEnvio").textContent = envioCents() ? `(+ ${pesos(envioCents())})` : "";
   $("bloqueDireccion").hidden = entrega() !== "delivery";
   $("totalPedido").textContent = pesos(totalPedido());
@@ -281,7 +397,7 @@ $("enviarPedido").onclick = async () => {
   $("enviarPedido").disabled = false;
   if (await manejarCierre(r)) return;
   if (!r.ok) return err(r.datos.error || "No pudimos mandar el pedido. Probá de nuevo.");
-  const total = totalPedido(); cantidades = {};
+  const total = totalPedido(); lineas = [];
   mostrarResultado("¡Recibimos tu pedido!", r.datos.codigo, `${entrega() === "delivery" ? "Delivery" : "Retiro"} · total aproximado ${pesos(total)}`);
 };
 
