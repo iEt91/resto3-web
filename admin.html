@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Administración de Resto 3</title>
+<style>
+  :root { --fondo:#fbf8f4; --tarjeta:#fff; --texto:#1d1a17; --suave:#6f665d; --linea:#e6ded4; --acento:#e0541a; --acento-t:#fff; --ok:#1d7a46; --mal:#b3261e; --aviso:#8a5a00; }
+  @media (prefers-color-scheme: dark) { :root { --fondo:#141210; --tarjeta:#1d1a17; --texto:#f3ece4; --suave:#a89e93; --linea:#332f2a; --acento:#ff6a2a; --acento-t:#1a0f08; --ok:#58c58a; --mal:#ff8a80; --aviso:#f0b954; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--fondo); color:var(--texto); font:15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:980px; margin:0 auto; padding:20px 16px 48px; }
+  h1 { font:600 26px/1.15 Georgia, serif; margin:8px 0 16px; } h2 { font-size:17px; margin:0 0 10px; }
+  .tarjeta { background:var(--tarjeta); border:1px solid var(--linea); border-radius:14px; padding:16px; margin:16px 0; }
+  .suave { color:var(--suave); font-size:13px; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  button.p { border:0; border-radius:10px; background:var(--acento); color:var(--acento-t); font-weight:600; padding:10px 14px; }
+  button.s { background:transparent; border:1px solid var(--linea); border-radius:8px; padding:5px 10px; font-size:13px; }
+  button.mal { color:var(--mal); border-color:var(--mal); }
+  input, select { font:inherit; color:inherit; padding:9px 10px; border:1px solid var(--linea); border-radius:8px; background:var(--fondo); width:100%; }
+  label { display:block; font-size:13px; color:var(--suave); }
+  .grilla { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; align-items:end; }
+  .local { border-top:1px solid var(--linea); padding:12px 0; display:grid; grid-template-columns:1fr auto; gap:6px 12px; }
+  .local:first-of-type { border-top:0; }
+  .chip { display:inline-block; font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid var(--linea); }
+  .chip.ok { color:var(--ok); border-color:var(--ok); } .chip.mal { color:var(--mal); border-color:var(--mal); } .chip.aviso { color:var(--aviso); border-color:var(--aviso); }
+  .acciones { display:flex; gap:6px; flex-wrap:wrap; align-items:flex-start; }
+  .codigo { font:600 14px ui-monospace, Consolas, monospace; letter-spacing:.04em; }
+  .error { color:var(--mal); margin:8px 0 0; } .ok { color:var(--ok); margin:8px 0 0; }
+  @media (max-width:560px) { .local { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Administración de Resto 3</h1>
+
+  <section class="tarjeta" id="entrada">
+    <h2>Entrar</h2>
+    <label for="clave">Contraseña del administrador</label>
+    <input id="clave" type="password" autocomplete="current-password">
+    <p class="error" id="errorEntrada" role="alert" hidden></p>
+    <p><button class="p" id="entrar">Entrar</button></p>
+    <p class="suave">La contraseña no se guarda en este navegador: hay que escribirla cada vez.</p>
+  </section>
+
+  <div id="panel" hidden>
+    <section class="tarjeta">
+      <h2>Pedidos de restauración que esperan aprobación</h2>
+      <div id="pendientes"></div>
+      <p class="suave">Antes de aprobar, confirmá con el dueño (por teléfono) que fue él quien lo pidió: con la restauración se entrega la clave de las copias del local.</p>
+    </section>
+
+    <section class="tarjeta">
+      <h2>Locales</h2>
+      <div id="locales"></div>
+    </section>
+
+    <section class="tarjeta">
+      <h2>Dar de alta un local</h2>
+      <div class="grilla">
+        <div><label for="nNombre">Nombre del local</label><input id="nNombre" maxlength="120"></div>
+        <div><label for="nDuenio">Dueño</label><input id="nDuenio" maxlength="120"></div>
+        <div><label for="nTelefono">Teléfono</label><input id="nTelefono" maxlength="40"></div>
+        <div><label for="nEmail">Correo</label><input id="nEmail" type="email" maxlength="200"></div>
+        <div><label for="nEstado">Estado</label><select id="nEstado"><option value="prueba">En prueba</option><option value="activo">Activo</option></select></div>
+        <div><button class="p" id="crear">Crear y obtener el código</button></div>
+      </div>
+      <p class="ok" id="resultadoCrear" role="status" hidden></p>
+      <p class="error" id="errorCrear" role="alert" hidden></p>
+    </section>
+    <p><button class="s" id="salir">Salir</button> <button class="s" id="recargar">Actualizar</button></p>
+  </div>
+</main>
+
+<script>
+// Dirección de la función de administración de la nube.
+const NUBE = "https://huqifpwqqncdnxulmcee.supabase.co/functions/v1/resto3-admin";
+const $ = (id) => document.getElementById(id);
+let clave = "";
+
+async function llamar(ruta, cuerpo) {
+  try {
+    const r = await fetch(`${NUBE}/${ruta}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...cuerpo, clave }) });
+    return { ok: r.ok, status: r.status, datos: await r.json().catch(() => ({})) };
+  } catch { return { ok: false, status: 0, datos: { error: "No hay conexión con la nube." } }; }
+}
+const hace = (iso) => {
+  if (!iso) return "nunca";
+  const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+  return m < 90 ? `hace ${m} min` : m < 2880 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} días`;
+};
+const mb = (b) => (Number(b) / 1048576).toFixed(1) + " MB";
+const ESTADO = { prueba: ["En prueba", "aviso"], activo: ["Activo", "ok"], suspendido: ["Suspendido", "mal"] };
+function chip(t, tono) { const s = document.createElement("span"); s.className = "chip " + (tono || ""); s.textContent = t; return s; }
+function boton(t, fn, clase) { const b = document.createElement("button"); b.className = "s " + (clase || ""); b.textContent = t; b.onclick = fn; return b; }
+
+async function accion(ruta, cuerpo, confirmacion) {
+  if (confirmacion && !confirm(confirmacion)) return;
+  const r = await llamar(ruta, cuerpo);
+  if (!r.ok) alert(r.datos.error || "No se pudo completar.");
+  else if (r.datos.mensaje) alert(r.datos.mensaje);
+  await cargar();
+}
+
+async function cargar() {
+  const r = await llamar("locales", {});
+  if (!r.ok) { $("errorEntrada").textContent = r.datos.error || "No se pudo entrar."; $("errorEntrada").hidden = false; $("entrada").hidden = false; $("panel").hidden = true; return false; }
+  $("entrada").hidden = true; $("panel").hidden = false;
+  const pen = $("pendientes"); pen.textContent = "";
+  for (const p of r.datos.pendientes) {
+    const f = document.createElement("div"); f.className = "local";
+    const info = document.createElement("div");
+    info.append(Object.assign(document.createElement("b"), { textContent: p.nombre }), ` · ${p.duenio_nombre || "sin dueño cargado"} ${p.duenio_telefono ? "· " + p.duenio_telefono : ""} ${p.duenio_email ? "· " + p.duenio_email : ""}`);
+    const det = document.createElement("div"); det.className = "suave"; det.textContent = `Equipo: ${p.equipo || "sin nombre"} · pedido ${hace(p.solicitada_en)} · vence ${new Date(p.vence_en).toLocaleString("es-AR")}`; info.append(det);
+    const ac = document.createElement("div"); ac.className = "acciones";
+    ac.append(boton("Aprobar", () => accion("restauracion", { id: p.id, accion: "aprobar" }, `¿Confirmaste con ${p.duenio_nombre || "el dueño"} que pidió restaurar "${p.nombre}"?`)), boton("Rechazar", () => accion("restauracion", { id: p.id, accion: "rechazar" }, "¿Rechazar este pedido?"), "mal"));
+    f.append(info, ac); pen.append(f);
+  }
+  if (!r.datos.pendientes.length) pen.textContent = "No hay pedidos pendientes.";
+  const cont = $("locales"); cont.textContent = "";
+  for (const l of r.datos.locales) {
+    const f = document.createElement("div"); f.className = "local";
+    const info = document.createElement("div");
+    const t = document.createElement("div");
+    const [te, tono] = ESTADO[l.estado] || [l.estado, ""];
+    t.append(Object.assign(document.createElement("b"), { textContent: l.nombre + " " }), chip(te, tono), " ");
+    if (!l.activado_en) t.append(chip("Sin activar", "aviso"), " ");
+    if (l.web) t.append(chip(l.web.enLinea && l.web.abierta ? "Web abierta" : "Web cerrada", l.web.enLinea && l.web.abierta ? "ok" : "aviso"));
+    const cod = document.createElement("div"); cod.className = "codigo"; cod.textContent = l.codigo;
+    const det = document.createElement("div"); det.className = "suave";
+    const sinCopia = l.horas_sin_copia === null || l.horas_sin_copia === undefined ? null : Number(l.horas_sin_copia);
+    det.textContent = `${l.duenio_nombre || "sin dueño"}${l.duenio_telefono ? " · " + l.duenio_telefono : ""} · versión ${l.version_instalada || "—"} · contacto ${hace(l.ultimo_contacto_en)} · última copia ${hace(l.ultima_copia_en)} · ${l.copias} copias (${mb(l.bytes_usados)})`;
+    info.append(t, cod, det);
+    if (l.activado_en && (sinCopia === null || sinCopia > 48)) { const a = document.createElement("div"); a.className = "error"; a.textContent = "Hace más de 2 días que no sube copias."; info.append(a); }
+    const ac = document.createElement("div"); ac.className = "acciones";
+    if (l.estado !== "activo") ac.append(boton("Pasar a activo", () => accion("estado", { codigo: l.codigo, estado: "activo" })));
+    if (l.estado !== "suspendido") ac.append(boton("Suspender", () => accion("estado", { codigo: l.codigo, estado: "suspendido" }, `¿Suspender "${l.nombre}"? Deja de poder subir copias y recibir reservas por Internet.`), "mal"));
+    if (l.activado_en) ac.append(boton("Liberar código", () => accion("liberar", { codigo: l.codigo }, `Liberar el código permite activar "${l.nombre}" en otra PC. ¿Seguro?`)));
+    f.append(info, ac); cont.append(f);
+  }
+  if (!r.datos.locales.length) cont.textContent = "Todavía no hay locales.";
+  return true;
+}
+
+$("entrar").onclick = async () => {
+  clave = $("clave").value; $("errorEntrada").hidden = true; $("entrar").disabled = true;
+  const ok = await cargar(); $("entrar").disabled = false;
+  if (ok) $("clave").value = ""; else clave = "";
+};
+$("clave").onkeydown = (e) => { if (e.key === "Enter") $("entrar").click(); };
+$("salir").onclick = () => { clave = ""; $("panel").hidden = true; $("entrada").hidden = false; };
+$("recargar").onclick = () => void cargar();
+$("crear").onclick = async () => {
+  $("resultadoCrear").hidden = true; $("errorCrear").hidden = true;
+  const r = await llamar("crear", { nombre: $("nNombre").value, duenio: $("nDuenio").value, telefono: $("nTelefono").value, email: $("nEmail").value, estado: $("nEstado").value });
+  if (!r.ok) { $("errorCrear").textContent = r.datos.error || "No se pudo crear."; $("errorCrear").hidden = false; return; }
+  $("resultadoCrear").textContent = `Local creado. Código para entregar al dueño: ${r.datos.codigo}`; $("resultadoCrear").hidden = false;
+  for (const id of ["nNombre", "nDuenio", "nTelefono", "nEmail"]) $(id).value = "";
+  await cargar();
+};
+</script>
+</body>
+</html>
