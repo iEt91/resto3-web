@@ -209,7 +209,9 @@ async function cargar() {
 
 // Se vuelve a preguntar justo ahora: si el local se quedó sin Internet (o la cerró), se avisa antes de que el cliente complete nada.
 async function abrirSiHay(cual) {
-  await cargar();
+  const boton = $(cual === "reserva" ? "botonReservar" : "botonPedir"), texto = boton.textContent;
+  boton.textContent = "Cargando…"; boton.disabled = true; // la consulta tarda unos segundos: se avisa que está pasando algo
+  try { await cargar(); } finally { boton.textContent = texto; boton.disabled = false; }
   const p = (info && info.publica) || {};
   if (!info || !info.abierta || (cual === "reserva" && !(p.reservas && p.reservas.habilitadas)) || (cual === "pedido" && !pedidosOn())) return mostrarAviso(info && info.mensaje);
   $("resultado").hidden = true; cerrarFormularios();
@@ -294,7 +296,7 @@ function pintarGrupos(cont, grupos, ids, cambio) {
         if (g.tipo === "varias" && g.maxElegibles && g.opciones.filter((x) => ids.has(x.id)).length > g.maxElegibles) { ids.delete(o.id); inp.checked = false; }
         cambio();
       };
-      et.append(inp, document.createTextNode(o.nombre + (o.deltaCents ? " (+" + pesos(o.deltaCents) + ")" : ""))); caja.append(et);
+      et.append(inp, document.createTextNode(o.nombre + (o.deltaCents ? " (" + (o.deltaCents < 0 ? "−" : "+") + pesos(Math.abs(o.deltaCents)) + ")" : ""))); caja.append(et);
     }
     cont.append(caja);
   }
@@ -308,6 +310,7 @@ function elegir(p) {
   $("elegirTitulo").textContent = p.nombre;
   const unitario = () => p.precioCents + (p.combo ? p.combo.pasos.reduce((s, paso) => { const e = partes[paso.id]; return s + (e ? e.x.extraCents + sumaDeltas(e.x.grupos, e.ids) : 0); }, 0) : sumaDeltas(p.grupos, ids));
   const pintar = () => {
+    err.hidden = true; // el aviso de "falta elegir" se va apenas el cliente toca algo
     cont.innerHTML = "";
     if (p.combo) {
       for (const paso of p.combo.pasos) {
@@ -435,7 +438,7 @@ async function consultar() {
   const texto = pedido && d.estado === "lista" ? (d.entrega === "retiro" ? "Ya podés pasar a retirarlo." : "Sale en un momento.") : base;
   const h = document.createElement("strong"); h.textContent = titulo; h.style.color = `var(--${tono})`;
   const a = document.createElement("div"); a.className = "suave";
-  if (pedido) a.textContent = `${d.nombre} · ${d.entrega === "delivery" ? "Delivery" : "Retiro"}${d.totalCents != null ? " · total " + pesos(d.totalCents) : ""}`;
+  if (pedido) a.textContent = `${d.nombre} · ${d.entrega === "delivery" ? "Delivery" : "Retiro"}${d.totalCents ? " · total " + pesos(d.totalCents) : ""}`;
   else { const f = new Date(d.fecha + "T12:00:00"); a.textContent = `${d.nombre} · ${d.personas} personas · ${DIAS[f.getDay()]} ${f.getDate()}/${f.getMonth() + 1} a las ${d.hora}`; }
   const t = document.createElement("div"); t.textContent = texto + (d.motivo ? ` Motivo: ${d.motivo}` : "");
   cont.append(h, a, t);
